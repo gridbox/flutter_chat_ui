@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cross_cache/cross_cache.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flyer_chat_image_message/flyer_chat_image_message.dart';
 import 'package:flyer_chat_text_message/flyer_chat_text_message.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'create_message.dart';
@@ -31,6 +34,9 @@ class Api extends StatefulWidget {
 }
 
 class ApiState extends State<Api> {
+  final _crossCache = CrossCache();
+  final _uuid = const Uuid();
+
   late WebSocketChannel _channel;
   late StreamSubscription<dynamic> _channelStream;
   late ChatController _chatController;
@@ -49,6 +55,7 @@ class ApiState extends State<Api> {
     _channelStream.cancel();
     _channel.sink.close();
     _chatController.dispose();
+    _crossCache.dispose();
   }
 
   @override
@@ -64,9 +71,11 @@ class ApiState extends State<Api> {
               FlyerChatImageMessage(message: message),
         ),
         chatController: _chatController,
+        crossCache: _crossCache,
         user: widget.author,
         onMessageSend: _addItem,
         onMessageTap: _removeItem,
+        onAttachmentTap: _handleAttachmentTap,
         theme: ChatTheme.fromThemeData(theme),
         darkTheme: ChatTheme.fromThemeData(theme),
       ),
@@ -170,6 +179,57 @@ class ApiState extends State<Api> {
           possiblyUpdatedMessage.copyWith(id: response.data!['id']),
         );
       }
+    } catch (error) {
+      debugPrint(error.toString());
+    }
+  }
+
+  void _handleAttachmentTap() async {
+    final picker = ImagePicker();
+
+    final image = await picker.pickImage(source: ImageSource.gallery);
+
+    if (image == null) return;
+
+    await _crossCache.downloadAndSave(image.path);
+
+    final imageMessage = ImageMessage(
+      id: _uuid.v4(),
+      author: widget.author,
+      createdAt: DateTime.now().toUtc(),
+      source: image.path,
+    );
+
+    final bytes = await _crossCache.get(image.path);
+
+    await _chatController.insert(imageMessage);
+
+    try {
+      final response = await widget.dio.post<Map<String, dynamic>>(
+        'https://whatever.diamanthq.dev/upload',
+        data: FormData.fromMap({
+          'format': 'img',
+          'blob': MultipartFile.fromBytes(bytes),
+        }),
+        onSendProgress: (count, total) {
+          debugPrint('Upload progress: $count/$total');
+        },
+      );
+
+      print(response.data);
+
+      // if (mounted) {
+      //   // Make sure to get the updated message
+      //   // (width and height might have been set by the image message widget)
+      //   final possiblyUpdatedMessage = _chatController.messages.firstWhere(
+      //     (element) => element.id == message.id,
+      //     orElse: () => message,
+      //   );
+      //   await _chatController.update(
+      //     possiblyUpdatedMessage,
+      //     possiblyUpdatedMessage.copyWith(id: response.data!['id']),
+      //   );
+      // }
     } catch (error) {
       debugPrint(error.toString());
     }
