@@ -45,6 +45,8 @@ class Message extends StatelessWidget {
     this.onMessageStatusTap,
     this.onMessageTap,
     this.onMessageVisibilityChanged,
+    required this.showMessageSelection,
+    this.onMessageSelectionChanged,
     this.onPreviewDataFetched,
     required this.roundBorder,
     required this.showAvatar,
@@ -140,6 +142,12 @@ class Message extends StatelessWidget {
 
   /// Called when the message's visibility changes.
   final void Function(types.Message, bool visible)? onMessageVisibilityChanged;
+
+  /// Show message selection checkboxes.
+  final bool showMessageSelection;
+
+  /// Called when the message's selection changes.
+  final void Function(types.Message, bool selected)? onMessageSelectionChanged;
 
   /// See [TextMessage.onPreviewDataFetched].
   final void Function(types.TextMessage, types.PreviewData)? onPreviewDataFetched;
@@ -337,6 +345,30 @@ class Message extends StatelessWidget {
                 right: isMobile ? query.padding.right : 0,
               ));
 
+    Color getColor(Set<WidgetState> states) {
+      const interactiveStates = <WidgetState>{
+        WidgetState.pressed,
+        WidgetState.hovered,
+        WidgetState.focused,
+        WidgetState.selected,
+      };
+      if (states.any(interactiveStates.contains)) {
+        return InheritedChatTheme.of(context).theme.secondaryColor;
+      }
+      return InheritedChatTheme.of(context).theme.primaryColor;
+    }
+
+    final checkbox = Checkbox(
+      checkColor: Colors.white,
+      fillColor: WidgetStateProperty.resolveWith(getColor),
+      value: message.selected ?? false,
+      onChanged: (bool? value) {
+        if (value != null) {
+          onMessageSelectionChanged!(message, value);
+        }
+      },
+    );
+
     return Container(
       alignment: bubbleRtlAlignment == BubbleRtlAlignment.left
           ? currentUserIsAuthor
@@ -351,6 +383,7 @@ class Message extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         textDirection: bubbleRtlAlignment == BubbleRtlAlignment.left ? null : TextDirection.ltr,
         children: [
+          if (showMessageSelection && !currentUserIsAuthor && onMessageSelectionChanged != null) checkbox,
           if (!currentUserIsAuthor && showUserAvatars) _avatarBuilder(),
           if (currentUserIsAuthor && isLeftStatus) _statusIcon(context),
           ConstrainedBox(
@@ -389,6 +422,7 @@ class Message extends StatelessWidget {
             ),
           ),
           if (currentUserIsAuthor && !isLeftStatus) _statusIcon(context),
+          if (showMessageSelection && currentUserIsAuthor && onMessageSelectionChanged != null) checkbox,
         ],
       ),
     );
